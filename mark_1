@@ -11,9 +11,9 @@ import java.math.BigDecimal;
 
 /*
  * Created by VisualJForex Generator, version 2.97
- * Date: 27.07.2020 13:58
+ * Date: 27.07.2020 15:08
  */
-public class mark_2 implements IStrategy {
+public class mark_1 implements IStrategy {
 
 	private CopyOnWriteArrayList<TradeEventAction> tradeEventActions = new CopyOnWriteArrayList<TradeEventAction>();
 	private static final String DATE_FORMAT_NOW = "yyyyMMdd_HHmmss";
@@ -26,6 +26,8 @@ public class mark_2 implements IStrategy {
 
 	@Configurable("defaultTakeProfit:")
 	public int defaultTakeProfit = 50;
+	@Configurable("_close_hour:")
+	public int _close_hour = 21;
 	@Configurable("defaultInstrument:")
 	public Instrument defaultInstrument = Instrument.EURUSD;
 	@Configurable("defaultSlippage:")
@@ -50,6 +52,8 @@ public class mark_2 implements IStrategy {
 	private List<IOrder> PendingPositions =  null ;
 	private Candle _last_bar =  null ;
 	private int _bar_hour;
+	private IOrder _my_op_pos =  null ;
+	private int _tempVar137 = 1;
 	private List<IOrder> OpenPositions =  null ;
 	private double UseofLeverage;
 	private IMessage LastTradeEvent =  null ;
@@ -209,7 +213,7 @@ public class mark_2 implements IStrategy {
 		Instrument argument_1 = defaultInstrument;
 		Period argument_2 = defaultPeriod;
 		OfferSide argument_3 = OfferSide.BID;
-		int argument_4 = 0;
+		int argument_4 = _tempVar137;
 			subscriptionInstrumentCheck(argument_1);
  		
         try {
@@ -226,7 +230,7 @@ public class mark_2 implements IStrategy {
 		Date date = new Date(argument_1);
 		Calendar calendar = GregorianCalendar.getInstance(TimeZone.getTimeZone("GMT"));
 		calendar.setTime(date);
-		_bar_hour = calendar.get(Calendar.DAY_OF_MONTH);
+		_bar_hour = calendar.get(Calendar.HOUR_OF_DAY);
 		If_block_14(flow);
 	}
 
@@ -243,8 +247,8 @@ public class mark_2 implements IStrategy {
 	}
 
 	private  void If_block_15(Integer flow) {
-		double argument_1 = candle12.getClose();
-		double argument_2 = candle12.getOpen();
+		double argument_1 = _last_bar.getClose();
+		double argument_2 = _last_bar.getOpen();
 		if (argument_1< argument_2) {
 			OpenatMarket_block_16(flow);
 		}
