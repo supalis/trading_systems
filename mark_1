@@ -1,0 +1,544 @@
+package com.dukascopy.visualforex.visualjforex;
+
+import java.util.*;
+import com.dukascopy.api.*;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.lang.reflect.*;
+import java.math.BigDecimal;
+
+
+/*
+ * Created by VisualJForex Generator, version 2.97
+ * Date: 25.07.2020 15:40
+ */
+public class mark_op_bar implements IStrategy {
+
+    private CopyOnWriteArrayList<TradeEventAction> tradeEventActions = new CopyOnWriteArrayList<TradeEventAction>();
+    private static final String DATE_FORMAT_NOW = "yyyyMMdd_HHmmss";
+    private IEngine engine;
+    private IConsole console;
+    private IHistory history;
+    private IContext context;
+    private IIndicators indicators;
+    private IUserInterface userInterface;
+
+    @Configurable("defaultTakeProfit:")
+    public int defaultTakeProfit = 50;
+    @Configurable("_close_hour:")
+    public int _close_hour = 20;
+    @Configurable("_close_evening:")
+    public boolean _close_evening = true;
+    @Configurable("defaultSlippage:")
+    public int defaultSlippage = 5;
+    @Configurable("defaultTradeAmount:")
+    public double defaultTradeAmount = 0.001;
+    @Configurable("defaultStopLoss:")
+    public int defaultStopLoss = 25;
+    @Configurable("_market_op_bar:")
+    public int _market_op_bar = 8;
+    @Configurable("defaultPeriod:")
+    public Period defaultPeriod = Period.ONE_HOUR;
+
+    private Candle LastBidCandle =  null ;
+    private String AccountId = "";
+    private double Equity;
+    private Tick LastTick =  null ;
+    private String AccountCurrency = "";
+    private int OverWeekendEndLeverage;
+    private Candle candle30 =  null ;
+    private Candle candle33 =  null ;
+    private Candle candle34 =  null ;
+    private Instrument defaultInstrument = Instrument.EURUSD;
+    private double Leverage;
+    private Candle _h_cabdle_now =  null ;
+    private List<IOrder> PendingPositions =  null ;
+    private IOrder _my_pos =  null ;
+    private List<IOrder> OpenPositions =  null ;
+    private double UseofLeverage;
+    private IMessage LastTradeEvent =  null ;
+    private int _last_h_hour;
+    private boolean GlobalAccount;
+    private Candle _l_day =  null ;
+    private Candle _d_last =  null ;
+    private Candle candle20 =  null ;
+    private int _tempVar140 = 1;
+    private Period _tempVar200 = Period.DAILY;
+    private Candle _d_now =  null ;
+    private Candle LastAskCandle =  null ;
+    private int MarginCutLevel;
+    private List<IOrder> AllPositions =  null ;
+    private Candle _h_last =  null ;
+
+
+    public void onStart(IContext context) throws JFException {
+        this.engine = context.getEngine();
+        this.console = context.getConsole();
+        this.history = context.getHistory();
+        this.context = context;
+        this.indicators = context.getIndicators();
+        this.userInterface = context.getUserInterface();
+
+        subscriptionInstrumentCheck(defaultInstrument);
+
+        ITick lastITick = context.getHistory().getLastTick(defaultInstrument);
+        LastTick = new Tick(lastITick, defaultInstrument);
+
+        IBar bidBar = context.getHistory().getBar(defaultInstrument, defaultPeriod, OfferSide.BID, 1);
+        IBar askBar = context.getHistory().getBar(defaultInstrument, defaultPeriod, OfferSide.ASK, 1);
+        LastAskCandle = new Candle(askBar, defaultPeriod, defaultInstrument, OfferSide.ASK);
+        LastBidCandle = new Candle(bidBar, defaultPeriod, defaultInstrument, OfferSide.BID);
+
+        subscriptionInstrumentCheck(Instrument.fromString("EUR/USD"));
+
+    }
+
+    public void onAccount(IAccount account) throws JFException {
+        AccountCurrency = account.getCurrency().toString();
+        Leverage = account.getLeverage();
+        AccountId= account.getAccountId();
+        Equity = account.getEquity();
+        UseofLeverage = account.getUseOfLeverage();
+        OverWeekendEndLeverage = account.getOverWeekEndLeverage();
+        MarginCutLevel = account.getMarginCutLevel();
+        GlobalAccount = account.isGlobal();
+    }
+
+    private void updateVariables(Instrument instrument) {
+        try {
+            AllPositions = engine.getOrders();
+            List<IOrder> listMarket = new ArrayList<IOrder>();
+            for (IOrder order: AllPositions) {
+                if (order.getState().equals(IOrder.State.FILLED)){
+                    listMarket.add(order);
+                }
+            }
+            List<IOrder> listPending = new ArrayList<IOrder>();
+            for (IOrder order: AllPositions) {
+                if (order.getState().equals(IOrder.State.OPENED)){
+                    listPending.add(order);
+                }
+            }
+            OpenPositions = listMarket;
+            PendingPositions = listPending;
+        } catch(JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void onMessage(IMessage message) throws JFException {
+        if (message.getOrder() != null) {
+            updateVariables(message.getOrder().getInstrument());
+            LastTradeEvent = message;
+            for (TradeEventAction event :  tradeEventActions) {
+                IOrder order = message.getOrder();
+                if (order != null && event != null && message.getType().equals(event.getMessageType())&& order.getLabel().equals(event.getPositionLabel())) {
+                    Method method;
+                    try {
+                        method = this.getClass().getDeclaredMethod(event.getNextBlockId(), Integer.class);
+                        method.invoke(this, new Integer[] {event.getFlowId()});
+                    } catch (SecurityException e) {
+                            e.printStackTrace();
+                    } catch (NoSuchMethodException e) {
+                          e.printStackTrace();
+                    } catch (IllegalArgumentException e) {
+                        e.printStackTrace();
+                    } catch (IllegalAccessException e) {
+                        e.printStackTrace();
+                    } catch (InvocationTargetException e) {
+                        e.printStackTrace();
+                    } 
+                    tradeEventActions.remove(event); 
+                }
+            }   
+        }
+    }
+
+    public void onStop() throws JFException {
+    }
+
+    public void onTick(Instrument instrument, ITick tick) throws JFException {
+        LastTick = new Tick(tick, instrument);
+        updateVariables(instrument);
+
+
+    }
+
+    public void onBar(Instrument instrument, Period period, IBar askBar, IBar bidBar) throws JFException {
+        LastAskCandle = new Candle(askBar, period, instrument, OfferSide.ASK);
+        LastBidCandle = new Candle(bidBar, period, instrument, OfferSide.BID);
+        updateVariables(instrument);
+            If_block_19(1);
+
+    }
+
+    public void subscriptionInstrumentCheck(Instrument instrument) {
+        try {
+              Set<Instrument> instruments = new HashSet<Instrument>();
+              instruments.add(instrument);
+              context.setSubscribedInstruments(instruments, true);
+          } catch (Exception e) {
+              e.printStackTrace();
+          }
+        }
+
+    public double round(double price, Instrument instrument) {
+        BigDecimal big = new BigDecimal("" + price); 
+        big = big.setScale(instrument.getPipScale() + 1, BigDecimal.ROUND_HALF_UP); 
+        return big.doubleValue(); 
+    }
+
+    public ITick getLastTick(Instrument instrument) {
+        try { 
+            return (context.getHistory().getTick(instrument, 0)); 
+        } catch (JFException e) { 
+             e.printStackTrace();  
+         } 
+         return null; 
+    }
+
+    private  void If_block_12(Integer flow) {
+        Period argument_1 = LastBidCandle.getPeriod();
+        Period argument_2 = Period.ONE_HOUR;
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            GetHistoricalCandle_block_20(flow);
+        }
+    }
+
+    private  void If_block_19(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Instrument argument_2 = LastBidCandle.getInstrument();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            If_block_12(flow);
+        }
+    }
+
+    private  void GetHistoricalCandle_block_20(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Period argument_2 = defaultPeriod;
+        OfferSide argument_3 = OfferSide.BID;
+        int argument_4 = _tempVar140;
+            subscriptionInstrumentCheck(argument_1);
+         
+        try {
+            IBar tempBar = history.getBar(argument_1, argument_2, argument_3, argument_4); 
+            _d_last = new Candle(tempBar, argument_2, argument_1, argument_3); 
+        } catch (JFException e) {
+            e.printStackTrace();
+        }
+        GetHistoricalCandle_block_33(flow);
+    }
+
+    private  void If_block_22(Integer flow) {
+        double argument_1 = _d_last.getOpen();
+        double argument_2 = _d_last.getClose();
+        if (argument_1< argument_2) {
+            OpenatMarket_block_24(flow);
+        }
+        else if (argument_1> argument_2) {
+            OpenatMarket_block_25(flow);
+        }
+        else if (argument_1== argument_2) {
+        }
+    }
+
+    private  void OpenatMarket_block_24(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        double argument_2 = defaultTradeAmount;
+        int argument_3 = defaultSlippage;
+        int argument_4 = defaultStopLoss;
+        int argument_5 = defaultTakeProfit;
+        String argument_6 = "";
+        ITick tick = getLastTick(argument_1);
+
+        IEngine.OrderCommand command = IEngine.OrderCommand.SELL;
+
+        double stopLoss = tick.getAsk() + argument_1.getPipValue() * argument_4;
+        double takeProfit = round(tick.getAsk() - argument_1.getPipValue() * argument_5, argument_1);
+        
+           try {
+               String label = getLabel();           
+               IOrder order = context.getEngine().submitOrder(label, argument_1, command, argument_2, 0, argument_3,  stopLoss, takeProfit, 0, argument_6);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private  void OpenatMarket_block_25(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        double argument_2 = defaultTradeAmount;
+        int argument_3 = defaultSlippage;
+        int argument_4 = defaultStopLoss;
+        int argument_5 = defaultTakeProfit;
+        String argument_6 = "";
+        ITick tick = getLastTick(argument_1);
+
+        IEngine.OrderCommand command = IEngine.OrderCommand.BUY;
+
+        double stopLoss = tick.getBid() - argument_1.getPipValue() * argument_4;
+        double takeProfit = round(tick.getBid() + argument_1.getPipValue() * argument_5, argument_1);
+        
+           try {
+               String label = getLabel();           
+               IOrder order = context.getEngine().submitOrder(label, argument_1, command, argument_2, 0, argument_3,  stopLoss, takeProfit, 0, argument_6);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private  void PositionsViewer_block_28(Integer flow) {
+        List<IOrder> argument_1 = AllPositions;
+        for (IOrder order : argument_1){
+            if (order.getState() == IOrder.State.OPENED||order.getState() == IOrder.State.FILLED){
+                _my_pos = order;
+            }
+        }
+        CloseandCancelPosition_block_29(flow);
+    }
+
+    private  void CloseandCancelPosition_block_29(Integer flow) {
+        try {
+            if (_my_pos != null && (_my_pos.getState() == IOrder.State.OPENED||_my_pos.getState() == IOrder.State.FILLED)){
+                _my_pos.close(defaultTradeAmount);
+            }
+        } catch (JFException e)  {
+            e.printStackTrace();
+        }
+    }
+
+    private  void GetHistoricalCandle_block_33(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Period argument_2 = defaultPeriod;
+        OfferSide argument_3 = OfferSide.BID;
+        int argument_4 = 0;
+            subscriptionInstrumentCheck(argument_1);
+         
+        try {
+            IBar tempBar = history.getBar(argument_1, argument_2, argument_3, argument_4); 
+            _d_now = new Candle(tempBar, argument_2, argument_1, argument_3); 
+        } catch (JFException e) {
+            e.printStackTrace();
+        }
+        GetHistoricalCandle_block_34(flow);
+    }
+
+    private  void GetHistoricalCandle_block_34(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Period argument_2 = defaultPeriod;
+        OfferSide argument_3 = OfferSide.BID;
+        int argument_4 = 0;
+            subscriptionInstrumentCheck(argument_1);
+         
+        try {
+            IBar tempBar = history.getBar(argument_1, argument_2, argument_3, argument_4); 
+            _h_cabdle_now = new Candle(tempBar, argument_2, argument_1, argument_3); 
+        } catch (JFException e) {
+            e.printStackTrace();
+        }
+        GetTimeUnit_block_36(flow);
+    }
+
+    private  void If_block_35(Integer flow) {
+        int argument_1 = _last_h_hour;
+        int argument_2 = _close_hour;
+        if (argument_1< argument_2) {
+            If_block_37(flow);
+        }
+        else if (argument_1> argument_2) {
+        }
+        else if (argument_1== argument_2) {
+            PositionsViewer_block_28(flow);
+        }
+    }
+
+    private  void GetTimeUnit_block_36(Integer flow) {
+        long argument_1 = _h_cabdle_now.getTime();
+        Date date = new Date(argument_1);
+        Calendar calendar = GregorianCalendar.getInstance(TimeZone.getTimeZone("GMT"));
+        calendar.setTime(date);
+        _last_h_hour = calendar.get(Calendar.DAY_OF_MONTH);
+        If_block_35(flow);
+    }
+
+    private  void If_block_37(Integer flow) {
+        int argument_1 = _last_h_hour;
+        int argument_2 = _market_op_bar;
+        if (argument_1< argument_2) {
+        }
+        else if (argument_1> argument_2) {
+        }
+        else if (argument_1== argument_2) {
+            If_block_22(flow);
+        }
+    }
+
+class Candle  {
+
+    IBar bar;
+    Period period;
+    Instrument instrument;
+    OfferSide offerSide;
+
+    public Candle(IBar bar, Period period, Instrument instrument, OfferSide offerSide) {
+        this.bar = bar;
+        this.period = period;
+        this.instrument = instrument;
+        this.offerSide = offerSide;
+    }
+
+    public Period getPeriod() {
+        return period;
+    }
+
+    public void setPeriod(Period period) {
+        this.period = period;
+    }
+
+    public Instrument getInstrument() {
+        return instrument;
+    }
+
+    public void setInstrument(Instrument instrument) {
+        this.instrument = instrument;
+    }
+
+    public OfferSide getOfferSide() {
+        return offerSide;
+    }
+
+    public void setOfferSide(OfferSide offerSide) {
+        this.offerSide = offerSide;
+    }
+
+    public IBar getBar() {
+        return bar;
+    }
+
+    public void setBar(IBar bar) {
+        this.bar = bar;
+    }
+
+    public long getTime() {
+        return bar.getTime();
+    }
+
+    public double getOpen() {
+        return bar.getOpen();
+    }
+
+    public double getClose() {
+        return bar.getClose();
+    }
+
+    public double getLow() {
+        return bar.getLow();
+    }
+
+    public double getHigh() {
+        return bar.getHigh();
+    }
+
+    public double getVolume() {
+        return bar.getVolume();
+    }
+}
+class Tick {
+
+    private ITick tick;
+    private Instrument instrument;
+
+    public Tick(ITick tick, Instrument instrument){
+        this.instrument = instrument;
+        this.tick = tick;
+    }
+
+    public Instrument getInstrument(){
+       return  instrument;
+    }
+
+    public double getAsk(){
+       return  tick.getAsk();
+    }
+
+    public double getBid(){
+       return  tick.getBid();
+    }
+
+    public double getAskVolume(){
+       return  tick.getAskVolume();
+    }
+
+    public double getBidVolume(){
+        return tick.getBidVolume();
+    }
+
+   public long getTime(){
+       return  tick.getTime();
+    }
+
+   public ITick getTick(){
+       return  tick;
+    }
+}
+
+    protected String getLabel() {
+        String label;
+        label = "IVF" + getCurrentTime(LastTick.getTime()) + generateRandom(10000) + generateRandom(10000);
+        return label;
+    }
+
+    private String getCurrentTime(long time) {
+        SimpleDateFormat sdf = new SimpleDateFormat(DATE_FORMAT_NOW);
+        return sdf.format(time);
+    }
+
+    private static String generateRandom(int n) {
+        int randomNumber = (int) (Math.random() * n);
+        String answer = "" + randomNumber;
+        if (answer.length() > 3) {
+            answer = answer.substring(0, 4);
+        }
+        return answer;
+    }
+
+    class TradeEventAction {
+        private IMessage.Type messageType;
+        private String nextBlockId = "";
+        private String positionLabel = "";
+        private int flowId = 0;
+
+        public IMessage.Type getMessageType() {
+            return messageType;
+        }
+
+        public void setMessageType(IMessage.Type messageType) {
+            this.messageType = messageType;
+        }
+
+        public String getNextBlockId() {
+            return nextBlockId;
+        }
+
+        public void setNextBlockId(String nextBlockId) {
+            this.nextBlockId = nextBlockId;
+        }
+        public String getPositionLabel() {
+            return positionLabel;
+       }
+
+        public void setPositionLabel(String positionLabel) {
+            this.positionLabel = positionLabel;
+        }
+        public int getFlowId() {
+            return flowId;
+        }
+        public void setFlowId(int flowId) {
+            this.flowId = flowId;
+        }
+    }
+}
