@@ -1,0 +1,893 @@
+package com.dukascopy.visualforex.supalis;
+
+import java.util.*;
+import com.dukascopy.api.*;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.lang.reflect.*;
+import java.math.BigDecimal;
+
+
+/*
+ * Created by VisualJForex Generator, version 2.97
+ * Date: 02.12.2020 14:23
+ */
+public class tom_1 implements IStrategy {
+
+    private CopyOnWriteArrayList<TradeEventAction> tradeEventActions = new CopyOnWriteArrayList<TradeEventAction>();
+    private static final String DATE_FORMAT_NOW = "yyyyMMdd_HHmmss";
+    private IEngine engine;
+    private IConsole console;
+    private IHistory history;
+    private IContext context;
+    private IIndicators indicators;
+    private IUserInterface userInterface;
+
+    @Configurable("_search_depth:")
+    public int _search_depth = 120;
+    @Configurable("_n_perc:")
+    public double _n_perc = 50.0;
+    @Configurable("defaultTradeAmount:")
+    public double defaultTradeAmount = 0.01;
+    @Configurable("defaultInstrument:")
+    public Instrument defaultInstrument = Instrument.EURUSD;
+    @Configurable("_delta:")
+    public double _delta = 20.0;
+    @Configurable("defaultPeriod:")
+    public Period defaultPeriod = Period.ONE_HOUR;
+
+    private IOrder.State _pos_active = IOrder.State.OPENED;
+    private double _bounce_sell_price = 0.0;
+    private int defaultTakeProfit = 100;
+    private double _bounce_sell_tp = 0.0;
+    private double _last_lvl_resist = 0.0;
+    private Tick LastTick =  null ;
+    private IOrder _pending_bounce_sell =  null ;
+    private String AccountCurrency = "";
+    private IOrder _pending_out_sell =  null ;
+    private double _out_sell_sl = 0.0;
+    private double Leverage;
+    private Candle _candles_data =  null ;
+    private double _out_sell_price = 0.0;
+    private double _delta_half;
+    private IOrder _my_pending_pos =  null ;
+    private double _last_lvl_support = 0.0;
+    private double _bounce_sell_sl;
+    private Candle LastAskCandle =  null ;
+    private double _out_buy_price = 0.0;
+    private double _out_buy_sl = 0.0;
+    private Candle LastBidCandle =  null ;
+    private String AccountId = "";
+    private double Equity;
+    private IOrder _pending_bounce_buy =  null ;
+    private int OverWeekendEndLeverage;
+    private double _lvl_support = 0.0;
+    private boolean _initialization = true;
+    private int defaultSlippage = 1;
+    private double _out_buy_tp = 0.0;
+    private double _bounce_buy_tp = 0.0;
+    private List<IOrder> PendingPositions =  null ;
+    private double _lvl_resist;
+    private boolean _open_pos = false;
+    private List<Candle> _candles_array =  null ;
+    private List<IOrder> OpenPositions =  null ;
+    private int defaultStopLoss = 100;
+    private double UseofLeverage;
+    private IMessage LastTradeEvent =  null ;
+    private boolean GlobalAccount;
+    private int MarginCutLevel;
+    private List<IOrder> AllPositions =  null ;
+    private double _bounce_buy_sl;
+    private double _out_sell_tp = 0.0;
+    private IOrder _my_open_position =  null ;
+    private double _bounce_buy_price = 0.0;
+    private IOrder _pending_out_buy =  null ;
+
+
+    public void onStart(IContext context) throws JFException {
+        this.engine = context.getEngine();
+        this.console = context.getConsole();
+        this.history = context.getHistory();
+        this.context = context;
+        this.indicators = context.getIndicators();
+        this.userInterface = context.getUserInterface();
+
+        subscriptionInstrumentCheck(defaultInstrument);
+
+        ITick lastITick = context.getHistory().getLastTick(defaultInstrument);
+        LastTick = new Tick(lastITick, defaultInstrument);
+
+        IBar bidBar = context.getHistory().getBar(defaultInstrument, defaultPeriod, OfferSide.BID, 1);
+        IBar askBar = context.getHistory().getBar(defaultInstrument, defaultPeriod, OfferSide.ASK, 1);
+        LastAskCandle = new Candle(askBar, defaultPeriod, defaultInstrument, OfferSide.ASK);
+        LastBidCandle = new Candle(bidBar, defaultPeriod, defaultInstrument, OfferSide.BID);
+
+        subscriptionInstrumentCheck(Instrument.fromString("EUR/USD"));
+
+    }
+
+    public void onAccount(IAccount account) throws JFException {
+        AccountCurrency = account.getCurrency().toString();
+        Leverage = account.getLeverage();
+        AccountId= account.getAccountId();
+        Equity = account.getEquity();
+        UseofLeverage = account.getUseOfLeverage();
+        OverWeekendEndLeverage = account.getOverWeekEndLeverage();
+        MarginCutLevel = account.getMarginCutLevel();
+        GlobalAccount = account.isGlobal();
+    }
+
+    private void updateVariables(Instrument instrument) {
+        try {
+            AllPositions = engine.getOrders();
+            List<IOrder> listMarket = new ArrayList<IOrder>();
+            for (IOrder order: AllPositions) {
+                if (order.getState().equals(IOrder.State.FILLED)){
+                    listMarket.add(order);
+                }
+            }
+            List<IOrder> listPending = new ArrayList<IOrder>();
+            for (IOrder order: AllPositions) {
+                if (order.getState().equals(IOrder.State.OPENED)){
+                    listPending.add(order);
+                }
+            }
+            OpenPositions = listMarket;
+            PendingPositions = listPending;
+        } catch(JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void onMessage(IMessage message) throws JFException {
+        if (message.getOrder() != null) {
+            updateVariables(message.getOrder().getInstrument());
+            LastTradeEvent = message;
+            for (TradeEventAction event :  tradeEventActions) {
+                IOrder order = message.getOrder();
+                if (order != null && event != null && message.getType().equals(event.getMessageType())&& order.getLabel().equals(event.getPositionLabel())) {
+                    Method method;
+                    try {
+                        method = this.getClass().getDeclaredMethod(event.getNextBlockId(), Integer.class);
+                        method.invoke(this, new Integer[] {event.getFlowId()});
+                    } catch (SecurityException e) {
+                            e.printStackTrace();
+                    } catch (NoSuchMethodException e) {
+                          e.printStackTrace();
+                    } catch (IllegalArgumentException e) {
+                        e.printStackTrace();
+                    } catch (IllegalAccessException e) {
+                        e.printStackTrace();
+                    } catch (InvocationTargetException e) {
+                        e.printStackTrace();
+                    } 
+                    tradeEventActions.remove(event); 
+                }
+            }   
+        }
+    }
+
+    public void onStop() throws JFException {
+    }
+
+    public void onTick(Instrument instrument, ITick tick) throws JFException {
+        LastTick = new Tick(tick, instrument);
+        updateVariables(instrument);
+
+
+    }
+
+    public void onBar(Instrument instrument, Period period, IBar askBar, IBar bidBar) throws JFException {
+        LastAskCandle = new Candle(askBar, period, instrument, OfferSide.ASK);
+        LastBidCandle = new Candle(bidBar, period, instrument, OfferSide.BID);
+        updateVariables(instrument);
+            If_block_10(1);
+
+    }
+
+    public void subscriptionInstrumentCheck(Instrument instrument) {
+        try {
+              Set<Instrument> instruments = new HashSet<Instrument>();
+              instruments.add(instrument);
+              context.setSubscribedInstruments(instruments, true);
+          } catch (Exception e) {
+              e.printStackTrace();
+          }
+        }
+
+    public double round(double price, Instrument instrument) {
+        BigDecimal big = new BigDecimal("" + price); 
+        big = big.setScale(instrument.getPipScale() + 1, BigDecimal.ROUND_HALF_UP); 
+        return big.doubleValue(); 
+    }
+
+    public ITick getLastTick(Instrument instrument) {
+        try { 
+            return (context.getHistory().getTick(instrument, 0)); 
+        } catch (JFException e) { 
+             e.printStackTrace();  
+         } 
+         return null; 
+    }
+
+    private  void If_block_10(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Instrument argument_2 = LastBidCandle.getInstrument();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            If_block_11(flow);
+        }
+    }
+
+    private  void If_block_11(Integer flow) {
+        Period argument_1 = defaultPeriod;
+        Period argument_2 = LastBidCandle.getPeriod();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            If_block_25(flow);
+        }
+    }
+
+    private  void PendingOpen_block_14(Integer flow) {
+        double argument_1 = _bounce_buy_price;
+        Instrument argument_2 = defaultInstrument;
+        double argument_3 = defaultTradeAmount;
+        int argument_4 = defaultSlippage;
+        double argument_5 = _bounce_buy_sl;
+        double argument_6 = _bounce_buy_tp;
+        String argument_7 = "";
+        long argument_8 = 0;
+        IEngine.OrderCommand command = IEngine.OrderCommand.BUYLIMIT;
+
+        double stopLoss = round(argument_5, argument_2);
+        double takeProfit = round(argument_6, argument_2);
+        
+        try {
+            String label = getLabel();           
+            _pending_bounce_buy = context.getEngine().submitOrder(label, argument_2, command, argument_3, round(argument_1, argument_2), (double)argument_4, stopLoss, takeProfit, argument_8, argument_7);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private  void MultipleAction_block_15(Integer flow) {
+        PendingOpen_block_16(flow);
+        Assign_block_75(flow);
+        PendingOpen_block_73(flow);
+    }
+
+    private  void PendingOpen_block_16(Integer flow) {
+        double argument_1 = _bounce_sell_price;
+        Instrument argument_2 = defaultInstrument;
+        double argument_3 = defaultTradeAmount;
+        int argument_4 = defaultSlippage;
+        double argument_5 = _bounce_sell_sl;
+        double argument_6 = _bounce_sell_tp;
+        String argument_7 = "";
+        long argument_8 = 0;
+        IEngine.OrderCommand command = IEngine.OrderCommand.SELLLIMIT;
+
+        double stopLoss = round(argument_5, argument_2);
+        double takeProfit = round(argument_6, argument_2);
+        
+        try {
+            String label = getLabel();           
+            _pending_bounce_sell = context.getEngine().submitOrder(label, argument_2, command, argument_3, round(argument_1, argument_2), (double)argument_4, stopLoss, takeProfit, argument_8, argument_7);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void Calculation_block_17(Integer flow) {
+        double argument_1 = _lvl_resist;
+        double argument_2 = _delta_half;
+        _bounce_sell_price = argument_1 - argument_2;
+        Calculation_block_29(flow);
+    }
+
+    private void Calculation_block_18(Integer flow) {
+        double argument_1 = _lvl_support;
+        double argument_2 = _delta_half;
+        _bounce_buy_price = argument_1 + argument_2;
+        Calculation_block_26(flow);
+    }
+
+    private void Calculation_block_23(Integer flow) {
+        double argument_1 = _delta;
+        double argument_2 = LastTick.getInstrument().getPipValue();
+        _delta = argument_1 * argument_2;
+        Calculation_block_31(flow);
+    }
+
+    private  void Assign_block_24(Integer flow) {
+        boolean argument_1 = false;
+        _initialization =  argument_1;
+        }
+
+    private  void If_block_25(Integer flow) {
+        boolean argument_1 = _initialization;
+        boolean argument_2 = false;
+        if (argument_1!= argument_2) {
+            Calculation_block_23(flow);
+        }
+        else if (argument_1 == argument_2) {
+            Assign_block_60(flow);
+        }
+    }
+
+    private void Calculation_block_26(Integer flow) {
+        double argument_1 = _bounce_buy_price;
+        double argument_2 = _delta;
+        _bounce_buy_sl = argument_1 - argument_2;
+        CalculationExpression_block_65(flow);
+    }
+
+    private void Calculation_block_29(Integer flow) {
+        double argument_1 = _bounce_sell_price;
+        double argument_2 = _delta;
+        _bounce_sell_sl = argument_1 + argument_2;
+        CalculationExpression_block_70(flow);
+    }
+
+    private void Calculation_block_31(Integer flow) {
+        double argument_1 = _delta;
+        double argument_2 = 2.0;
+        _delta_half = argument_1 / argument_2;
+        Assign_block_88(flow);
+    }
+
+    private  void Assign_block_59(Integer flow) {
+        double argument_1 = 100000.0;
+        _lvl_support =  argument_1;
+            GetHistoricalCandles_block_126(flow);
+    }
+
+    private  void Assign_block_60(Integer flow) {
+        double argument_1 = 0.0;
+        _lvl_resist =  argument_1;
+            Assign_block_59(flow);
+    }
+
+    private void CalculationExpression_block_65(Integer flow) {
+        _bounce_buy_tp = _lvl_support+(_lvl_resist-_lvl_support)*_n_perc/ (float)100;
+        Calculation_block_67(flow);
+    }
+
+    private void Calculation_block_66(Integer flow) {
+        double argument_1 = _lvl_resist;
+        double argument_2 = _delta_half;
+        _out_buy_price = argument_1 + argument_2;
+        Calculation_block_68(flow);
+    }
+
+    private void Calculation_block_67(Integer flow) {
+        double argument_1 = _lvl_support;
+        double argument_2 = _delta_half;
+        _out_sell_price = argument_1 - argument_2;
+        Calculation_block_69(flow);
+    }
+
+    private void Calculation_block_68(Integer flow) {
+        double argument_1 = _out_buy_price;
+        double argument_2 = _delta;
+        _out_buy_sl = argument_1 - argument_2;
+        CalculationExpression_block_71(flow);
+    }
+
+    private void Calculation_block_69(Integer flow) {
+        double argument_1 = _out_sell_price;
+        double argument_2 = _delta;
+        _out_sell_sl = argument_1 + argument_2;
+        CalculationExpression_block_72(flow);
+    }
+
+    private void CalculationExpression_block_70(Integer flow) {
+        _bounce_sell_tp = _lvl_resist-(_lvl_resist-_lvl_support)*_n_perc/ (float)100;
+        Calculation_block_66(flow);
+    }
+
+    private void CalculationExpression_block_71(Integer flow) {
+        _out_buy_tp = _lvl_resist+(_lvl_resist-_lvl_support)*_n_perc/ (float)100;
+        MultipleAction_block_15(flow);
+    }
+
+    private void CalculationExpression_block_72(Integer flow) {
+        _out_sell_tp = _lvl_support-(_lvl_resist-_lvl_support)*_n_perc/ (float)100;
+        MultipleAction_block_77(flow);
+    }
+
+    private  void PendingOpen_block_73(Integer flow) {
+        double argument_1 = _out_buy_price;
+        Instrument argument_2 = defaultInstrument;
+        double argument_3 = defaultTradeAmount;
+        int argument_4 = defaultSlippage;
+        double argument_5 = _out_buy_sl;
+        double argument_6 = _out_buy_tp;
+        String argument_7 = "";
+        long argument_8 = 0;
+        IEngine.OrderCommand command = IEngine.OrderCommand.BUYSTOP;
+
+        double stopLoss = round(argument_5, argument_2);
+        double takeProfit = round(argument_6, argument_2);
+        
+        try {
+            String label = getLabel();           
+            _pending_out_buy = context.getEngine().submitOrder(label, argument_2, command, argument_3, round(argument_1, argument_2), (double)argument_4, stopLoss, takeProfit, argument_8, argument_7);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private  void PendingOpen_block_74(Integer flow) {
+        double argument_1 = _out_sell_price;
+        Instrument argument_2 = defaultInstrument;
+        double argument_3 = defaultTradeAmount;
+        int argument_4 = defaultSlippage;
+        double argument_5 = _out_sell_sl;
+        double argument_6 = _out_sell_tp;
+        String argument_7 = "";
+        long argument_8 = 0;
+        IEngine.OrderCommand command = IEngine.OrderCommand.SELLSTOP;
+
+        double stopLoss = round(argument_5, argument_2);
+        double takeProfit = round(argument_6, argument_2);
+        
+        try {
+            String label = getLabel();           
+            _pending_out_sell = context.getEngine().submitOrder(label, argument_2, command, argument_3, round(argument_1, argument_2), (double)argument_4, stopLoss, takeProfit, argument_8, argument_7);
+                } catch (JFException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private  void Assign_block_75(Integer flow) {
+        double argument_1 = _lvl_resist;
+        _last_lvl_resist =  argument_1;
+        }
+
+    private  void Assign_block_76(Integer flow) {
+        double argument_1 = _lvl_support;
+        _last_lvl_support =  argument_1;
+        }
+
+    private  void MultipleAction_block_77(Integer flow) {
+        PendingOpen_block_14(flow);
+        Assign_block_76(flow);
+        PendingOpen_block_74(flow);
+    }
+
+    private  void If_block_78(Integer flow) {
+        double argument_1 = _lvl_resist;
+        double argument_2 = _last_lvl_resist;
+        if (argument_1< argument_2) {
+            PositionsViewer_block_105(flow);
+        }
+        else if (argument_1> argument_2) {
+            PositionsViewer_block_105(flow);
+        }
+        else if (argument_1== argument_2) {
+        }
+    }
+
+    private  void If_block_79(Integer flow) {
+        double argument_1 = _lvl_support;
+        double argument_2 = _last_lvl_support;
+        if (argument_1< argument_2) {
+            PositionsViewer_block_103(flow);
+        }
+        else if (argument_1> argument_2) {
+            PositionsViewer_block_103(flow);
+        }
+        else if (argument_1== argument_2) {
+        }
+    }
+
+    private  void MultipleAction_block_84(Integer flow) {
+        If_block_78(flow);
+        If_block_79(flow);
+    }
+
+    private  void Assign_block_87(Integer flow) {
+        double argument_1 = 0.0;
+        _last_lvl_resist =  argument_1;
+            Assign_block_24(flow);
+    }
+
+    private  void Assign_block_88(Integer flow) {
+        double argument_1 = 100000.0;
+        _last_lvl_support =  argument_1;
+            Assign_block_87(flow);
+    }
+
+    private  void PositionsViewer_block_103(Integer flow) {
+        List<IOrder> argument_1 = PendingPositions;
+        for (IOrder order : argument_1){
+            if (order.getState() == IOrder.State.OPENED||order.getState() == IOrder.State.FILLED){
+                _my_pending_pos = order;
+                MultipleAction_block_180(flow);
+            }
+        }
+        Calculation_block_18(flow);
+    }
+
+    private  void PositionsViewer_block_105(Integer flow) {
+        List<IOrder> argument_1 = PendingPositions;
+        for (IOrder order : argument_1){
+            if (order.getState() == IOrder.State.OPENED||order.getState() == IOrder.State.FILLED){
+                _my_pending_pos = order;
+                MultipleAction_block_176(flow);
+            }
+        }
+        Calculation_block_17(flow);
+    }
+
+    private  void CloseandCancelPosition_block_106(Integer flow) {
+        try {
+            if (_pending_out_buy != null && (_pending_out_buy.getState() == IOrder.State.OPENED||_pending_out_buy.getState() == IOrder.State.FILLED)){
+                _pending_out_buy.close();
+            }
+        } catch (JFException e)  {
+            e.printStackTrace();
+        }
+    }
+
+    private  void GetHistoricalCandles_block_126(Integer flow) {
+        Instrument argument_1 = defaultInstrument;
+        Period argument_2 = defaultPeriod;
+        OfferSide argument_3 = OfferSide.BID;
+        int argument_4 = 0;
+        int argument_5 = _search_depth;
+        subscriptionInstrumentCheck(argument_1);
+         
+        try {
+            long lastBarTime = history.getBar(argument_1, argument_2, argument_3, argument_4).getTime(); 
+            List<IBar> tempBarList = history.getBars(argument_1, argument_2, argument_3, Filter.WEEKENDS, argument_5, lastBarTime, 0); 
+            _candles_array = new ArrayList<Candle>(); 
+            for (IBar bar : tempBarList) { 
+                _candles_array.add(new Candle(bar, argument_2, argument_1, argument_3)); 
+            } 
+        } catch (JFException e) {
+            e.printStackTrace();
+        }
+        LoopViewer_block_127(flow);
+    }
+
+    private  void LoopViewer_block_127(Integer flow) {
+        List<Candle> argument_1 = _candles_array;
+        for (Candle candle : argument_1) {
+            this._candles_data = candle;
+            MultipleAction_block_187(flow);
+        }
+            Assign_block_171(flow);
+    }
+
+    private  void PositionsViewer_block_169(Integer flow) {
+        List<IOrder> argument_1 = OpenPositions;
+        for (IOrder order : argument_1){
+            if (order.getState() == IOrder.State.OPENED||order.getState() == IOrder.State.FILLED){
+                _my_open_position = order;
+                If_block_170(flow);
+            }
+        }
+        If_block_173(flow);
+    }
+
+    private  void If_block_170(Integer flow) {
+        boolean argument_1 = _my_pending_pos.isLong();
+        boolean argument_2 = true;
+        if (argument_1!= argument_2) {
+            Assign_block_172(flow);
+        }
+        else if (argument_1 == argument_2) {
+            Assign_block_172(flow);
+        }
+    }
+
+    private  void Assign_block_171(Integer flow) {
+        boolean argument_1 = false;
+        _open_pos =  argument_1;
+            PositionsViewer_block_169(flow);
+    }
+
+    private  void Assign_block_172(Integer flow) {
+        boolean argument_1 = true;
+        _open_pos =  argument_1;
+        }
+
+    private  void If_block_173(Integer flow) {
+        boolean argument_1 = _open_pos;
+        boolean argument_2 = false;
+        if (argument_1!= argument_2) {
+        }
+        else if (argument_1 == argument_2) {
+            MultipleAction_block_84(flow);
+        }
+    }
+
+    private  void If_block_174(Integer flow) {
+        IOrder.State argument_1 = _pos_active;
+        IOrder.State argument_2 = _pending_bounce_sell.getState();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            CloseandCancelPosition_block_182(flow);
+        }
+    }
+
+    private  void If_block_175(Integer flow) {
+        IOrder.State argument_1 = _pos_active;
+        IOrder.State argument_2 = _pending_out_buy.getState();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            CloseandCancelPosition_block_106(flow);
+        }
+    }
+
+    private  void MultipleAction_block_176(Integer flow) {
+        If_block_175(flow);
+        If_block_174(flow);
+    }
+
+    private  void CloseandCancelPosition_block_177(Integer flow) {
+        try {
+            if (_pending_bounce_buy != null && (_pending_bounce_buy.getState() == IOrder.State.OPENED||_pending_bounce_buy.getState() == IOrder.State.FILLED)){
+                _pending_bounce_buy.close();
+            }
+        } catch (JFException e)  {
+            e.printStackTrace();
+        }
+    }
+
+    private  void If_block_178(Integer flow) {
+        IOrder.State argument_1 = _pos_active;
+        IOrder.State argument_2 = _pending_out_sell.getState();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            CloseandCancelPosition_block_181(flow);
+        }
+    }
+
+    private  void If_block_179(Integer flow) {
+        IOrder.State argument_1 = _pos_active;
+        IOrder.State argument_2 = _pending_bounce_buy.getState();
+        if (argument_1 == null && argument_2 !=null || (argument_1!= null && !argument_1.equals(argument_2))) {
+        }
+        else if (argument_1!= null && argument_1.equals(argument_2)) {
+            CloseandCancelPosition_block_177(flow);
+        }
+    }
+
+    private  void MultipleAction_block_180(Integer flow) {
+        If_block_179(flow);
+        If_block_178(flow);
+    }
+
+    private  void CloseandCancelPosition_block_181(Integer flow) {
+        try {
+            if (_pending_out_sell != null && (_pending_out_sell.getState() == IOrder.State.OPENED||_pending_out_sell.getState() == IOrder.State.FILLED)){
+                _pending_out_sell.close();
+            }
+        } catch (JFException e)  {
+            e.printStackTrace();
+        }
+    }
+
+    private  void CloseandCancelPosition_block_182(Integer flow) {
+        try {
+            if (_pending_bounce_sell != null && (_pending_bounce_sell.getState() == IOrder.State.OPENED||_pending_bounce_sell.getState() == IOrder.State.FILLED)){
+                _pending_bounce_sell.close();
+            }
+        } catch (JFException e)  {
+            e.printStackTrace();
+        }
+    }
+
+    private  void If_block_183(Integer flow) {
+        double argument_1 = _lvl_resist;
+        double argument_2 = _candles_data.getHigh();
+        if (argument_1< argument_2) {
+            Assign_block_185(flow);
+        }
+        else if (argument_1> argument_2) {
+        }
+        else if (argument_1== argument_2) {
+        }
+    }
+
+    private  void If_block_184(Integer flow) {
+        double argument_1 = _lvl_support;
+        double argument_2 = _candles_data.getLow();
+        if (argument_1< argument_2) {
+        }
+        else if (argument_1> argument_2) {
+            Assign_block_186(flow);
+        }
+        else if (argument_1== argument_2) {
+        }
+    }
+
+    private  void Assign_block_185(Integer flow) {
+        double argument_1 = _candles_data.getHigh();
+        _lvl_resist =  argument_1;
+        }
+
+    private  void Assign_block_186(Integer flow) {
+        double argument_1 = _candles_data.getLow();
+        _lvl_support =  argument_1;
+        }
+
+    private  void MultipleAction_block_187(Integer flow) {
+        If_block_183(flow);
+        If_block_184(flow);
+    }
+
+class Candle  {
+
+    IBar bar;
+    Period period;
+    Instrument instrument;
+    OfferSide offerSide;
+
+    public Candle(IBar bar, Period period, Instrument instrument, OfferSide offerSide) {
+        this.bar = bar;
+        this.period = period;
+        this.instrument = instrument;
+        this.offerSide = offerSide;
+    }
+
+    public Period getPeriod() {
+        return period;
+    }
+
+    public void setPeriod(Period period) {
+        this.period = period;
+    }
+
+    public Instrument getInstrument() {
+        return instrument;
+    }
+
+    public void setInstrument(Instrument instrument) {
+        this.instrument = instrument;
+    }
+
+    public OfferSide getOfferSide() {
+        return offerSide;
+    }
+
+    public void setOfferSide(OfferSide offerSide) {
+        this.offerSide = offerSide;
+    }
+
+    public IBar getBar() {
+        return bar;
+    }
+
+    public void setBar(IBar bar) {
+        this.bar = bar;
+    }
+
+    public long getTime() {
+        return bar.getTime();
+    }
+
+    public double getOpen() {
+        return bar.getOpen();
+    }
+
+    public double getClose() {
+        return bar.getClose();
+    }
+
+    public double getLow() {
+        return bar.getLow();
+    }
+
+    public double getHigh() {
+        return bar.getHigh();
+    }
+
+    public double getVolume() {
+        return bar.getVolume();
+    }
+}
+class Tick {
+
+    private ITick tick;
+    private Instrument instrument;
+
+    public Tick(ITick tick, Instrument instrument){
+        this.instrument = instrument;
+        this.tick = tick;
+    }
+
+    public Instrument getInstrument(){
+       return  instrument;
+    }
+
+    public double getAsk(){
+       return  tick.getAsk();
+    }
+
+    public double getBid(){
+       return  tick.getBid();
+    }
+
+    public double getAskVolume(){
+       return  tick.getAskVolume();
+    }
+
+    public double getBidVolume(){
+        return tick.getBidVolume();
+    }
+
+   public long getTime(){
+       return  tick.getTime();
+    }
+
+   public ITick getTick(){
+       return  tick;
+    }
+}
+
+    protected String getLabel() {
+        String label;
+        label = "IVF" + getCurrentTime(LastTick.getTime()) + generateRandom(10000) + generateRandom(10000);
+        return label;
+    }
+
+    private String getCurrentTime(long time) {
+        SimpleDateFormat sdf = new SimpleDateFormat(DATE_FORMAT_NOW);
+        return sdf.format(time);
+    }
+
+    private static String generateRandom(int n) {
+        int randomNumber = (int) (Math.random() * n);
+        String answer = "" + randomNumber;
+        if (answer.length() > 3) {
+            answer = answer.substring(0, 4);
+        }
+        return answer;
+    }
+
+    class TradeEventAction {
+        private IMessage.Type messageType;
+        private String nextBlockId = "";
+        private String positionLabel = "";
+        private int flowId = 0;
+
+        public IMessage.Type getMessageType() {
+            return messageType;
+        }
+
+        public void setMessageType(IMessage.Type messageType) {
+            this.messageType = messageType;
+        }
+
+        public String getNextBlockId() {
+            return nextBlockId;
+        }
+
+        public void setNextBlockId(String nextBlockId) {
+            this.nextBlockId = nextBlockId;
+        }
+        public String getPositionLabel() {
+            return positionLabel;
+       }
+
+        public void setPositionLabel(String positionLabel) {
+            this.positionLabel = positionLabel;
+        }
+        public int getFlowId() {
+            return flowId;
+        }
+        public void setFlowId(int flowId) {
+            this.flowId = flowId;
+        }
+    }
+}
